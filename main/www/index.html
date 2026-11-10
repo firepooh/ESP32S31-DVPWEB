@@ -99,7 +99,8 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const view = $('view'), msg = $('msg'), btnStream = $('btnStream');
-let streaming = false, retryTimer = null, controlsBuilt = false;
+let streaming = false, retryTimer = null, controlsBuilt = false, resSwitching = false;
+let streamStartedAt = 0, lastUptime = null;
 
 // 센서 파라미터: 슬라이더 또는 선택 목록
 const PARAMS = [
@@ -125,6 +126,7 @@ function toast(text) {
 function startStream() {
   clearTimeout(retryTimer);
   streaming = true;
+  streamStartedAt = Date.now();
   btnStream.textContent = '스트림 정지';
   msg.textContent = '연결 중...';
   msg.style.display = 'block';
@@ -176,9 +178,44 @@ async function setParam(key, val) {
   }
 }
 
-function buildControls(params) {
+// 해상도 전환은 보드에서 약 1초 걸린다. 스트림은 끊기지 않고 새 해상도로 이어진다.
+async function setResolution(val) {
+  const sel = $('selRes');
+  resSwitching = true;
+  sel.disabled = true;
+  try {
+    const r = await fetch(`/control?var=resolution&val=${val}`);
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) {
+    toast('해상도 변경 실패: ' + e.message);
+  } finally {
+    resSwitching = false;
+    sel.disabled = false;
+    pollStatus();
+  }
+}
+
+function buildControls(params, resolutions, current) {
   const box = $('controls');
   box.innerHTML = '';
+  if (resolutions && resolutions.length) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('label');
+    label.textContent = '해상도';
+    const sel = document.createElement('select');
+    sel.id = 'selRes';
+    for (const r of resolutions) {
+      const o = document.createElement('option');
+      o.value = `${r.width}x${r.height}`;
+      o.textContent = `${r.width}×${r.height} (${r.fps} fps)`;
+      sel.appendChild(o);
+    }
+    sel.value = current;
+    sel.onchange = () => setResolution(sel.value);
+    row.append(label, sel);
+    box.appendChild(row);
+  }
   for (const p of PARAMS) {
     const info = params[p.key];
     if (!info) continue;
@@ -242,14 +279,25 @@ async function pollStatus() {
     $('sSensor').textContent = c.sensor;
     $('sRes').textContent = `${c.width} × ${c.height}`;
     $('sEnc').textContent = c.jpeg_source === 'hw' ? 'S31 하드웨어 인코더' : (c.jpeg_source === 'sensor' ? '센서 내장' : '-');
-    $('sFps').textContent = `${c.fps.toFixed(1)} fps`;
+    $('sFps').textContent = `${c.fps.toFixed(1)} fps` + (c.sensor_fps ? ` (센서 ${c.sensor_fps})` : '');
     $('sJpeg').textContent = fmtBytes(c.jpeg_size);
     $('sFrames').textContent = `${c.frames} / ${c.dropped} / ${c.bad}`;
     $('sClients').textContent = `${s.stream_clients} / ${s.max_stream_clients}`;
     $('sWifi').textContent = `${s.wifi.ip} (${s.wifi.rssi} dBm)`;
     $('sHeap').textContent = `내부 ${fmtBytes(s.heap.internal)}, PSRAM ${fmtBytes(s.heap.psram)}`;
     $('sUptime').textContent = fmtUptime(s.uptime_s);
-    if (!controlsBuilt) { buildControls(s.params); controlsBuilt = true; }
+    // MJPEG 연결이 도중에 끊기면 브라우저가 img 오류를 알리지 않아 화면이 멈춘다.
+    // 보드가 재부팅했거나(가동 시간이 줄어듦) 스트림 접속이 0이면 다시 연결한다.
+    const rebooted = lastUptime !== null && s.uptime_s < lastUptime;
+    lastUptime = s.uptime_s;
+    if (streaming && (rebooted || (s.stream_clients === 0 && Date.now() - streamStartedAt > 5000))) {
+      startStream();
+    }
+    const cur = `${c.width}x${c.height}`;
+    if (!controlsBuilt) { buildControls(s.params, s.resolutions, cur); controlsBuilt = true; }
+    const sel = $('selRes');
+    if (sel && !resSwitching && document.activeElement !== sel) sel.value = cur;
+    document.querySelector('.viewer').style.aspectRatio = `${c.width} / ${c.height}`;
   } catch (e) {
     $('pillCam').textContent = '보드 연결 끊김';
     $('pillCam').className = 'pill bad';

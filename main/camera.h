@@ -16,6 +16,7 @@ typedef struct {
     const char *jpeg_source; /*!< "sensor": 센서 JPEG, "hw": S31 하드웨어 인코더 */
     uint16_t width;
     uint16_t height;
+    uint16_t sensor_fps;     /*!< 센서 포맷의 공칭 프레임 속도 */
     float fps;               /*!< 최근 1초 동안의 프레임 속도 */
     uint32_t frames;         /*!< 정상 수신한 프레임 수 */
     uint32_t dropped;        /*!< 빈 버퍼가 없어 버린 프레임 수 */
@@ -24,10 +25,20 @@ typedef struct {
 } cam_status_t;
 
 /**
- * DVP 컨트롤러와 센서를 초기화하고 캡처를 시작한다.
+ * DVP 컨트롤러와 센서를 초기화하고 캡처를 시작한다. 처음 해상도는 menuconfig 값을 쓴다.
  * OV3660은 센서 JPEG을 그대로 쓰고, SC101IOT는 YUV422를 하드웨어 JPEG 인코더로 압축한다.
  */
 esp_err_t cam_init(void);
+
+/**
+ * 동작 중에 해상도를 바꾼다. 센서가 그 해상도를 지원해야 한다 (cam_resolutions_to_json 참고).
+ * 전환이 끝날 때까지(약 1초) 기다린다. 실패하면 이전 해상도로 되돌린다.
+ * 전환하는 동안 cam_get_jpeg()는 새 해상도의 첫 프레임을 기다리므로 스트림은 끊기지 않는다.
+ */
+esp_err_t cam_set_resolution(uint16_t width, uint16_t height);
+
+/** 고를 수 있는 해상도를 JSON 배열 [{"width":..,"height":..,"fps":..}, ...]로 쓴다. 쓴 길이를 반환한다. */
+int cam_resolutions_to_json(char *out, size_t size);
 
 /**
  * *seq 보다 새로운 프레임을 호출자 버퍼에 복사한다.

@@ -145,7 +145,10 @@ static esp_err_t status_handler(httpd_req_t *req)
     char params[640];
     cam_params_to_json(params, sizeof(params));
 
-    const size_t size = 1400;
+    char resolutions[256];
+    cam_resolutions_to_json(resolutions, sizeof(resolutions));
+
+    const size_t size = 1700;
     char *json = malloc(size);
     if (json == NULL) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no memory");
@@ -153,15 +156,17 @@ static esp_err_t status_handler(httpd_req_t *req)
 
     int n = snprintf(json, size,
                      "{\"camera\":{\"running\":%s,\"sensor\":\"%s\",\"format\":\"%s\",\"jpeg_source\":\"%s\","
-                     "\"width\":%u,\"height\":%u,"
+                     "\"width\":%u,\"height\":%u,\"sensor_fps\":%u,"
                      "\"fps\":%.1f,\"frames\":%" PRIu32 ",\"dropped\":%" PRIu32 ",\"bad\":%" PRIu32 ",\"jpeg_size\":%u},"
+                     "\"resolutions\":%s,"
                      "\"params\":%s,"
                      "\"wifi\":{\"ip\":\"%s\",\"rssi\":%d},"
                      "\"stream_clients\":%d,\"max_stream_clients\":%d,"
                      "\"heap\":{\"internal\":%u,\"psram\":%u},"
                      "\"uptime_s\":%lld}",
                      st.running ? "true" : "false", st.sensor, st.format, st.jpeg_source, st.width, st.height,
-                     st.fps, st.frames, st.dropped, st.bad, (unsigned)st.jpeg_size,
+                     st.sensor_fps, st.fps, st.frames, st.dropped, st.bad, (unsigned)st.jpeg_size,
+                     resolutions,
                      params,
                      ip, wifi_sta_get_rssi(),
                      atomic_load(&s_stream_clients), CONFIG_APP_STREAM_MAX_CLIENTS,
@@ -185,7 +190,30 @@ static esp_err_t control_handler(httpd_req_t *req)
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
             httpd_query_key_value(query, "var", var, sizeof(var)) != ESP_OK ||
             httpd_query_key_value(query, "val", val, sizeof(val)) != ESP_OK) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Usage: /control?var=<name>&val=<int>");
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                   "Usage: /control?var=<name>&val=<int> or /control?var=resolution&val=<W>x<H>");
+    }
+
+    // 해상도: val = "1280x720". 전환이 끝날 때까지(약 1초) 응답을 보내지 않는다.
+    if (strcmp(var, "resolution") == 0) {
+        unsigned w = 0;
+        unsigned h = 0;
+        char extra;
+        if (sscanf(val, "%ux%u%c", &w, &h, &extra) != 2 || w == 0 || h == 0 || w > 0xFFFF || h > 0xFFFF) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "val must be <width>x<height>, e.g. 1280x720");
+        }
+        esp_err_t err = cam_set_resolution((uint16_t)w, (uint16_t)h);
+        if (err != ESP_OK) {
+            return httpd_resp_send_err(req, err == ESP_ERR_NOT_SUPPORTED ? HTTPD_400_BAD_REQUEST
+                                       : HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+        }
+        cam_status_t st;
+        cam_get_status(&st);
+        char resp[96];
+        snprintf(resp, sizeof(resp), "{\"ok\":true,\"width\":%u,\"height\":%u,\"sensor_fps\":%u}",
+                 st.width, st.height, st.sensor_fps);
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_sendstr(req, resp);
     }
 
     char *end = NULL;
