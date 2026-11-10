@@ -1,0 +1,10 @@
+# ESP-IDF build output and downloaded components
+build/
+managed_components/
+
+# sdkconfig is generated from sdkconfig.defaults
+sdkconfig
+sdkconfig.old
+
+# Personal Claude Code settings
+.claude/settings.local.json

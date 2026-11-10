@@ -1,0 +1,73 @@
+menu "DVP Web Camera"
+
+    menu "Wi-Fi Station"
+        comment "SSID/password are entered on the serial console and stored in NVS"
+
+        config APP_WIFI_HOSTNAME
+            string "DHCP hostname"
+            default "s31-dvp-cam"
+    endmenu
+
+    menu "Camera"
+        comment "Sensor is auto-detected: OV3660 (sensor JPEG) or SC101IOT (YUV422 + HW JPEG)"
+
+        choice APP_CAM_RESOLUTION
+            prompt "Stream resolution"
+            default APP_CAM_RES_VGA
+
+            config APP_CAM_RES_QVGA
+                bool "320x240 (QVGA, OV3660 only)"
+            config APP_CAM_RES_VGA
+                bool "640x480 (VGA)"
+            config APP_CAM_RES_HD
+                bool "1280x720 (HD)"
+        endchoice
+
+        config APP_CAM_WIDTH
+            int
+            default 320 if APP_CAM_RES_QVGA
+            default 1280 if APP_CAM_RES_HD
+            default 640
+
+        config APP_CAM_HEIGHT
+            int
+            default 240 if APP_CAM_RES_QVGA
+            default 720 if APP_CAM_RES_HD
+            default 480
+
+        config APP_HWJPEG_QUALITY
+            int "HW JPEG encoder quality for YUV sensors (1-100)"
+            range 1 100
+            default 80
+
+        config APP_CAM_JPEG_QUALITY
+            int "OV3660 sensor JPEG quality (1-40, higher is better, 0 = sensor default)"
+            range 0 40
+            default 0
+
+        config APP_CAM_ROTATE_180
+            bool "Rotate OV3660 image by 180 degrees (mirror + flip)"
+            default y
+            help
+                Same as the Korvo-1 factory demo: the OV3660 image is rotated by 180 degrees,
+                the SC101IOT image is used as is.
+
+        config APP_CAM_SCCB_FREQ_HZ
+            int "SCCB (I2C) clock in Hz"
+            range 10000 400000
+            default 10000
+            help
+                The Korvo-1 factory demo and BSP access the camera sensor at 10 kHz.
+
+        config APP_CAM_FB_COUNT
+            int "Number of camera frame buffers in PSRAM"
+            range 2 8
+            default 3
+    endmenu
+
+    config APP_STREAM_MAX_CLIENTS
+        int "Maximum concurrent MJPEG stream clients"
+        range 1 4
+        default 2
+
+endmenu

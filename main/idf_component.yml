@@ -1,0 +1,4 @@
+dependencies:
+  idf:
+    version: ">=6.0"
+  espressif/esp_cam_sensor: "^2.6.0"
